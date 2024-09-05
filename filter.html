@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Race Selection</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+      body {
+        display: flex;
+        flex-wrap: wrap;
+        height: 100vh;
+        margin: 0;
+      }
+      .quarter {
+        width: 50%;
+        height: 50%;
+        box-sizing: border-box;
+        border: 1px solid black;
+      }
+      #selection {
+        padding: 20px;
+      }
+      #quarter2 {
+        padding: 20px;
+      }
+      svg {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="quarter" id="selection">
+      <h2>Select Races</h2>
+      <form>
+        <label for="race1">Race 1:</label>
+        <select id="race1"></select>
+        <br /><br />
+        <label for="race2">Race 2:</label>
+        <select id="race2"></select>
+        <br /><br />
+        <label for="sort">Sort By:</label>
+        <select id="sort">
+          <option value="countAsc">Count (Low to High)</option>
+          <option value="countDesc">Count (High to Low)</option>
+        </select>
+      </form>
+    </div>
+    <div class="quarter" id="quarter2">
+      <svg></svg>
+    </div>
+    <div class="quarter" id="quarter3"></div>
+    <div class="quarter" id="quarter4"></div>
+
+    <script>
+      const races = [
+        "BLACK",
+        "WHITE",
+        "HISPANIC",
+        "ASIAN / PACIFIC ISLANDER",
+        "UNKNOWN",
+      ];
+
+      function populateSelect(selectId) {
+        const select = d3.select(selectId);
+        races.forEach(function (race) {
+          select.append("option").text(race).attr("value", race);
+        });
+      }
+
+      populateSelect("#race1");
+      populateSelect("#race2");
+
+      const data = [
+        { category: "Black Perpetrator", count: 11903 },
+        { category: "White Perpetrator", count: 298 },
+        { category: "Black Victim", count: 20235 },
+        { category: "White Victim", count: 728 },
+      ];
+
+      function sortData(sortBy) {
+        if (sortBy === "countAsc") {
+          data.sort((a, b) => a.count - b.count);
+        } else if (sortBy === "countDesc") {
+          data.sort((a, b) => b.count - a.count);
+        }
+      }
+
+      function updateChart(sortBy) {
+        sortData(sortBy);
+
+        const svg = d3.select("#quarter2 svg");
+        svg.selectAll("*").remove();
+
+        const margin = { top: 20, right: 30, bottom: 40, left: 40 };
+        const width = svg.node().clientWidth - margin.left - margin.right;
+        const height = svg.node().clientHeight - margin.top - margin.bottom;
+
+        const x = d3
+          .scaleBand()
+          .domain(data.map((d) => d.category))
+          .range([margin.left, width - margin.right])
+          .padding(0.1);
+
+        const y = d3
+          .scaleLinear()
+          .domain([0, d3.max(data, (d) => d.count)])
+          .nice()
+          .range([height - margin.bottom, margin.top]);
+
+        svg
+          .selectAll(".bar")
+          .data(data)
+          .enter()
+          .append("rect")
+          .attr("class", "bar")
+          .attr("x", (d) => x(d.category))
+          .attr("y", (d) => y(d.count))
+          .attr("width", x.bandwidth())
+          .attr("height", (d) => y(0) - y(d.count))
+          .attr("fill", "#4682b4");
+
+        svg
+          .append("g")
+          .attr("class", "x-axis")
+          .attr("transform", `translate(0,${height - margin.bottom})`)
+          .call(d3.axisBottom(x));
+
+        svg
+          .append("g")
+          .attr("class", "y-axis")
+          .attr("transform", `translate(${margin.left},0)`)
+          .call(d3.axisLeft(y));
+      }
+
+      updateChart("countAsc");
+
+      d3.select("#sort").on("change", function () {
+        const sortBy = d3.select(this).property("value");
+        updateChart(sortBy);
+      });
+    </script>
+  </body>
+</html>

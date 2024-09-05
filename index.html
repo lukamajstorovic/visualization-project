@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://d3js.org/d3.v6.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+  </head>
+  <body>
+    <div id="container">
+      <div id="quarter1" class="quarter"></div>
+      <div id="quarter2" class="quarter"></div>
+      <div id="quarter3" class="quarter"></div>
+      <div id="quarter4" class="quarter"></div>
+      <button id="filter-btn">Filter</button>
+    </div>
+    <div id="overlay" style="display: none">
+      <div id="popup">
+        <select id="race1"></select>
+        <select id="race2"></select>
+        <button id="apply-btn">Apply</button>
+      </div>
+    </div>
+
+    <script>
+      function wrap(text, width) {
+        text.each(function () {
+          var text = d3.select(this),
+            words = text.text().split(/\s+/).reverse(),
+            word,
+            line = [],
+            lineNumber = 0,
+            lineHeight = 1.1,
+            y = text.attr("y"),
+            dy = parseFloat(text.attr("dy")),
+            tspan = text
+              .text(null)
+              .append("tspan")
+              .attr("x", 0)
+              .attr("y", y)
+              .attr("dy", dy + "em");
+          while ((word = words.pop())) {
+            line.push(word);
+            tspan.text(line.join(" "));
+            if (tspan.node().getComputedTextLength() > width) {
+              line.pop();
+              tspan.text(line.join(" "));
+              line = [word];
+              tspan = text
+                .append("tspan")
+                .attr("x", 0)
+                .attr("y", y)
+                .attr("dy", ++lineNumber * lineHeight + dy + "em")
+                .text(word);
+            }
+          }
+        });
+      }
+
+      function createBarGraph(file, divId, columnName) {
+        d3.csv(file).then((data) => {
+          const margin = { top: 20, right: 20, bottom: 100, left: 40 };
+          const width = 960 - margin.left - margin.right;
+          const height = 500 - margin.top - margin.bottom;
+
+          const x = d3.scaleBand().range([0, width]).padding(0.1);
+          const y = d3.scaleLinear().range([height, 0]);
+
+          const svg = d3
+            .select(`#${divId}`)
+            .append("svg")
+            .attr("width", "100%")
+            .attr("height", "100%")
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+          data.forEach((d) => {
+            d.count = +d.count;
+          });
+
+          x.domain(data.map((d) => d[columnName]));
+          y.domain([0, d3.max(data, (d) => d.count)]);
+
+          svg
+            .selectAll(".bar")
+            .data(data)
+            .enter()
+            .append("rect")
+            .attr("class", "bar")
+            .attr("x", (d) => x(d[columnName]))
+            .attr("width", x.bandwidth())
+            .attr("y", (d) => y(d.count))
+            .attr("height", (d) => height - y(d.count));
+
+          svg
+            .append("g")
+            .attr("transform", `translate(0,${height})`)
+            .call(d3.axisBottom(x))
+            .selectAll("text")
+            .attr("transform", "rotate(-65)")
+            .style("text-anchor", "end")
+            .call(wrap, x.bandwidth());
+
+          svg.append("g").call(d3.axisLeft(y));
+        });
+      }
+
+      function createLineGraph(file, divId, columnName) {
+        d3.csv(file).then((data) => {
+          const margin = { top: 20, right: 20, bottom: 100, left: 40 };
+          const width = 960 - margin.left - margin.right;
+          const height = 500 - margin.top - margin.bottom;
+
+          const x = d3.scaleLinear().range([0, width]);
+          const y = d3.scaleLinear().range([height, 0]);
+
+          const svg = d3
+            .select(`#${divId}`)
+            .append("svg")
+            .attr("width", "100%")
+            .attr("height", "100%")
+            .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+          data.forEach((d) => {
+            d.count = +d.count;
+            d[columnName] = +d[columnName];
+          });
+
+          x.domain(d3.extent(data, (d) => d[columnName]));
+          y.domain([0, d3.max(data, (d) => d.count)]);
+
+          const line = d3
+            .line()
+            .x((d) => x(d[columnName]))
+            .y((d) => y(d.count));
+
+          svg
+            .append("path")
+            .datum(data)
+            .attr("fill", "none")
+            .attr("stroke", "black")
+            .attr("stroke-width", 1.5)
+            .attr("d", line);
+
+          svg
+            .append("g")
+            .attr("transform", `translate(0,${height})`)
+            .call(d3.axisBottom(x).tickFormat(d3.format("d")));
+
+          svg.append("g").call(d3.axisLeft(y));
+
+          const tooltip = d3
+            .select("body")
+            .append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+          const focus = svg
+            .append("g")
+            .attr("class", "focus")
+            .style("display", "none");
+
+          focus.append("circle").attr("r", 4.5);
+
+          svg
+            .append("rect")
+            .attr("class", "overlay")
+            .attr("width", width)
+            .attr("height", height)
+            .attr("fill", "none")
+            .attr("pointer-events", "all")
+            .on("mouseover", () => focus.style("display", null))
+            .on("mouseout", function () {
+              focus.style("display", "none");
+              tooltip.style("opacity", 0);
+            })
+            .on("mousemove", mousemove);
+
+          function mousemove(event) {
+            const bisect = d3.bisector((d) => d[columnName]).left;
+            const [xPos] = d3.pointer(event, svg.node());
+            const x0 = bisect(data, x.invert(xPos));
+            const d0 = data[x0];
+            if (d0) {
+              focus.attr(
+                "transform",
+                `translate(${x(d0[columnName])},${y(d0.count)})`
+              );
+              tooltip.style("opacity", 0.9);
+              tooltip
+                .html(`Year: ${d0[columnName]}<br/>Incidents: ${d0.count}`)
+                .style("left", `${event.pageX + 5}px`)
+                .style("top", `${event.pageY - 28}px`);
+            } else {
+              tooltip.style("opacity", 0);
+            }
+          }
+        });
+      }
+
+      function createPopulationPyramid(divId) {
+        const margin = { top: 20, right: 20, bottom: 30, left: 50 };
+        const width = 960 - margin.left - margin.right;
+        const height = 500 - margin.top - margin.bottom;
+
+        const svg = d3
+          .select(divId)
+          .append("svg")
+          .attr("width", "100%")
+          .attr("height", "100%")
+          .append("g")
+          .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        const data = [];
+
+        d3.csv("male_counts.csv").then((maleData) => {
+          d3.csv("female_counts.csv").then((femaleData) => {
+            maleData.forEach((maleRow) => {
+              const femaleRow = femaleData.find(
+                (d) => d.PERP_AGE_GROUP === maleRow.PERP_AGE_GROUP
+              );
+              data.push({
+                age: maleRow.PERP_AGE_GROUP,
+                male: +maleRow.COUNT,
+                female: femaleRow ? +femaleRow.COUNT : 0,
+              });
+            });
+
+            const maxCount = d3.max(data, (d) => Math.max(d.male, d.female));
+
+            const x = d3.scaleLinear().range([width / 2, 0]);
+            const y = d3.scaleBand().range([height, 0]).padding(0.1);
+
+            x.domain([0, maxCount]);
+            y.domain(data.map((d) => d.age));
+
+            const xRight = d3
+              .scaleLinear()
+              .range([0, width / 2])
+              .domain([0, maxCount]);
+
+            const gap = 5;
+
+            var tooltip = d3
+              .select("body")
+              .append("div")
+              .attr("class", "tooltip-pyramid")
+              .style("opacity", 0);
+
+            function mouseover(event, d) {
+              tooltip.transition().duration(200).style("opacity", 0.9);
+              tooltip.html(
+                "Age: " +
+                  d.age +
+                  "<br/>Male: " +
+                  d.male +
+                  "<br/>Female: " +
+                  d.female
+              );
+            }
+
+            function mousemove(event, d) {
+              tooltip
+                .style("left", event.pageX + "px")
+                .style("top", event.pageY - 28 + "px");
+            }
+
+            function mouseout(d) {
+              tooltip.transition().duration(500).style("opacity", 0);
+            }
+
+            svg
+              .selectAll(".bar.female")
+              .data(data)
+              .enter()
+              .append("rect")
+              .attr("class", "bar female")
+              .attr("x", (d) => x(d.female))
+              .attr("y", (d) => y(d.age))
+              .attr("width", (d) =>
+                Math.max(0, width / 2 - gap / 2 - x(d.female))
+              )
+              .attr("height", y.bandwidth())
+              .on("mouseover", mouseover)
+              .on("mousemove", mousemove)
+              .on("mouseout", mouseout);
+
+            svg
+              .selectAll(".bar.male")
+              .data(data)
+              .enter()
+              .append("rect")
+              .attr("class", "bar male")
+              .attr("x", width / 2 + gap / 2)
+              .attr("y", (d) => y(d.age))
+              .attr("width", (d) => Math.max(0, xRight(d.male)))
+              .attr("height", y.bandwidth())
+              .on("mouseover", mouseover)
+              .on("mousemove", mousemove)
+              .on("mouseout", mouseout);
+
+            const xAxisLeft = d3.axisBottom(x);
+            const xAxisRight = d3.axisBottom(xRight);
+
+            svg
+              .append("g")
+              .attr("transform", `translate(0,${height})`)
+              .call(xAxisLeft);
+
+            svg
+              .append("g")
+              .attr("transform", `translate(${width / 2},${height})`)
+              .call(xAxisRight);
+
+            svg.append("g").call(d3.axisLeft(y));
+          });
+        });
+      }
+
+      function createPieChart() {
+        var data = [];
+
+        d3.csv("perp_race_counts.csv").then(function (data) {
+          data.forEach(function (d) {
+            d.count = +d.count;
+          });
+
+          var width = 960,
+            height = 500,
+            color = d3.scaleOrdinal(d3.schemeCategory10);
+
+          var pie = d3.pie().value(function (d) {
+            return d.count;
+          })(data);
+
+          var arc = d3
+            .arc()
+            .innerRadius(100)
+            .outerRadius(Math.min(width, height) / 2);
+
+          var svg = d3
+            .select("#quarter4")
+            .append("svg")
+            .attr("width", "100%")
+            .attr("height", "100%")
+            .append("g")
+            .attr(
+              "transform",
+              "translate(" + (width / 2 + width / 5) + "," + height / 2 + ")"
+            );
+
+          var tooltip = d3
+            .select("body")
+            .append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+          svg
+            .selectAll("path")
+            .data(pie)
+            .enter()
+            .append("path")
+            .attr("d", arc)
+            .attr("fill", function (d) {
+              return color(d.data.PERP_RACE);
+            })
+            .attr("stroke", "white")
+            .style("stroke-width", "2px")
+            .style("opacity", 0.7)
+            .on("mouseover", function (event, d) {
+              tooltip
+                .style("width", "")
+                .style("height", "")
+                .style("opacity", 0.9)
+                .html(`Race: ${d.data.PERP_RACE}<br/>Count: ${d.data.count}`);
+              tooltip
+                .style("width", `${tooltip.node().scrollWidth}px`)
+                .style("height", `${tooltip.node().scrollHeight}px`);
+            })
+            .on("mousemove", function (event, d) {
+              tooltip
+                .style("left", `${event.pageX + 5}px`)
+                .style("top", `${event.pageY - 28}px`);
+            })
+            .on("mouseout", function (d) {
+              tooltip.style("opacity", 0);
+            });
+
+          var legendCircleRadius = 9;
+          var legendSpacing = 40;
+
+          var legend = svg
+            .selectAll(".legend")
+            .data(pie)
+            .enter()
+            .append("g")
+            .attr("class", "legend")
+            .attr("transform", function (d, i) {
+              var height = legendCircleRadius * 2 + legendSpacing;
+              var offset = (height * data.length) / 2;
+              var horz = -width / 1.5;
+              var vert = i * height - offset;
+              return "translate(" + horz + "," + vert + ")";
+            });
+
+          legend
+            .append("circle")
+            .attr("r", legendCircleRadius)
+            .style("fill", function (d) {
+              return color(d.data.PERP_RACE);
+            })
+            .style("stroke", function (d) {
+              return color(d.data.PERP_RACE);
+            });
+
+          legend
+            .append("text")
+            .attr("x", legendCircleRadius + legendSpacing)
+            .attr("y", legendCircleRadius)
+            .text(function (d) {
+              return d.data.PERP_RACE;
+            });
+        });
+      }
+
+      createBarGraph("perp_race_counts.csv", "quarter1", "PERP_RACE");
+      createLineGraph("occur_year_counts.csv", "quarter2", "OCCUR_YEAR");
+      createPopulationPyramid("#quarter3");
+      createPieChart();
+
+      document
+        .getElementById("filter-btn")
+        .addEventListener("click", function () {
+          window.location.href = "filter.html";
+        });
+    </script>
+
+    <style>
+      .tooltip {
+        position: absolute;
+        text-align: center;
+        width: 100px;
+        height: 28px;
+        padding: 2px;
+        font: 12px sans-serif;
+        background: rgb(215, 215, 215);
+        border: 0px;
+        border-radius: 8px;
+        pointer-events: none;
+        left: 0;
+        top: 0;
+      }
+      .tooltip-pyramid {
+        position: absolute;
+        text-align: center;
+        width: 100px;
+        height: 42px;
+        padding: 2px;
+        font: 12px sans-serif;
+        background: rgb(215, 215, 215);
+        border: 0px;
+        border-radius: 8px;
+        pointer-events: none;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #fff;
+      }
+
+      #container {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+      }
+
+      .quarter {
+        position: absolute;
+        width: calc(50% - 2px);
+        height: calc(50% - 2px);
+        box-sizing: border-box;
+      }
+
+      #quarter1 {
+        top: 0;
+        left: 0;
+        border-right: 2px solid black;
+        border-bottom: 2px solid black;
+      }
+
+      #quarter2 {
+        top: 0;
+        right: 0;
+        border-left: 2px solid black;
+        border-bottom: 2px solid black;
+      }
+
+      #quarter3 {
+        bottom: 0;
+        left: 0;
+        border-right: 2px solid black;
+        border-top: 2px solid black;
+      }
+
+      #quarter4 {
+        bottom: 0;
+        right: 0;
+        border-left: 2px solid black;
+        border-top: 2px solid black;
+      }
+
+      #filter-btn {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        padding: 20px;
+        background-color: #fff;
+      }
+      .graph-class {
+        padding: 0;
+        margin: 0;
+      }
+    </style>
+  </body>
+</html>
